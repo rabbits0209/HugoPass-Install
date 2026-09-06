@@ -1,5 +1,5 @@
 """
-HugoAura 卸载器
+HugoAura 卸载器 (HugoPass 密码绕过)
 """
 
 import os
@@ -9,13 +9,13 @@ import time
 import winreg
 from pathlib import Path
 from loguru import logger as log
-from utils import dirSearch, killer
+from utils import dirSearch, killer, hugoPass
 from config import config
 
 
 def check_hugoaura_installation():
     """
-    检查HugoAura是否已安装
+    检查 HugoPass 是否已安装
 
     返回:
         tuple: (是否已安装, 安装信息字典)
@@ -26,7 +26,6 @@ def check_hugoaura_installation():
         "install_time": None,
         "install_path": None,
         "asar_path": None,
-        "aura_folder_path": None,
     }
 
     try:
@@ -51,7 +50,6 @@ def check_hugoaura_installation():
         if seewo_dir:
             install_path = Path(seewo_dir)
             asar_path = install_path / config.TARGET_ASAR_NAME
-            aura_folder_path = install_path / config.EXTRACTED_FOLDER_NAME
 
             install_info["install_path"] = str(install_path)
 
@@ -59,18 +57,10 @@ def check_hugoaura_installation():
             if asar_path.exists():
                 install_info["asar_path"] = str(asar_path)
 
-            if aura_folder_path.exists():
-                install_info["aura_folder_path"] = str(aura_folder_path)
-
             # 必须同时满足以下条件才认为已安装：
             # 1. 注册表中有版本信息
             # 2. 存在 app.asar 文件 (被替换的希沃管家主程序)
-            # 3. 存在 aura 文件夹 (HugoAura的资源文件)
-            if (
-                install_info["version"]
-                and install_info["asar_path"]
-                and install_info["aura_folder_path"]
-            ):
+            if install_info["version"] and install_info["asar_path"]:
                 install_info["installed"] = True
 
     except FileNotFoundError:
@@ -84,15 +74,16 @@ def check_hugoaura_installation():
 
 def backup_original_asar(install_path):
     """
-    检查是否存在原始app.asar的备份
+    检查是否存在原始 app.asar 的备份
 
     参数:
         install_path: 安装路径
 
     返回:
-        str: 备份文件路径, 如果不存在则返回None
+        str: 备份文件路径, 如果不存在则返回 None
     """
     backup_patterns = [
+        config.ASAR_BACKUP_NAME,  # app.asar.orig (HugoPass 使用)
         "app.asar.bak",
         "app.asar.backup",
         "app.asar.original",
@@ -131,10 +122,10 @@ def run_uninstallation(args=None, installerClassIns=None):
             status_callback(status)
 
     try:
-        update_progress(0, "[0 / 8] 准备卸载")
+        update_progress(0, "[0 / 7] 准备卸载")
         log.info(f"开始卸载 {config.APP_NAME}")
 
-        update_progress(10, "[1 / 8] 检查安装状态")
+        update_progress(10, "[1 / 7] 检查安装状态")
         is_installed, install_info = check_hugoaura_installation()
 
         if not is_installed:
@@ -143,7 +134,7 @@ def run_uninstallation(args=None, installerClassIns=None):
                 update_status("未检测到安装")
                 return {"success": False, "errorInfo": "HugoAura 未安装"}
 
-        log.info(f"检测到HugoAura安装:")
+        log.info("检测到 HugoAura 安装:")
         if install_info["version"]:
             log.info(f"  版本: {install_info['version']}")
         if install_info["install_time"]:
@@ -151,13 +142,13 @@ def run_uninstallation(args=None, installerClassIns=None):
         if install_info["install_path"]:
             log.info(f"  安装路径: {install_info['install_path']}")
 
-        update_progress(20, "[2 / 8] 停止相关进程")
+        update_progress(20, "[2 / 7] 停止相关进程")
         # 启动进程终止任务
         if not (args and args.dry_run):
             killer.start_killing_process()
             time.sleep(2.0)
 
-        update_progress(30, "[3 / 8] 卸载文件系统过滤驱动")
+        update_progress(30, "[3 / 7] 卸载文件系统过滤驱动")
         try:
             if not (args and args.dry_run):
                 creationflags = subprocess.CREATE_NO_WINDOW
@@ -173,9 +164,9 @@ def run_uninstallation(args=None, installerClassIns=None):
         except Exception as e:
             log.warning(f"卸载文件系统过滤驱动时发生错误: {e}")
 
-        update_progress(40, "[4 / 8] 恢复原始ASAR文件")
+        update_progress(40, "[4 / 7] 恢复原始 ASAR 文件")
         if install_info["install_path"]:
-            # 尝试恢复原始app.asar
+            # 尝试恢复原始 app.asar
             backup_path = backup_original_asar(install_info["install_path"])
             if backup_path:
                 try:
@@ -184,42 +175,44 @@ def run_uninstallation(args=None, installerClassIns=None):
                     )
                     backup_file = Path(backup_path)
 
-                    log.info(f"恢复原始ASAR文件: {backup_path} -> {current_asar}")
+                    log.info(f"恢复原始 ASAR 文件: {backup_path} -> {current_asar}")
                     if not (args and args.dry_run):
                         if current_asar.exists():
                             os.remove(current_asar)
                         shutil.copy2(backup_file, current_asar)
                         # 删除备份文件
                         os.remove(backup_file)
-                    log.success("原始ASAR文件恢复成功")
+                    log.success("原始 ASAR 文件恢复成功")
                 except Exception as e:
-                    error_detail = f"恢复原始ASAR文件失败: {e}"
+                    error_detail = f"恢复原始 ASAR 文件失败: {e}"
                     log.error(error_detail)
                     raise Exception(error_detail)
             else:
-                error_detail = "未找到原始ASAR备份文件, 无法恢复希沃管家到原始状态"
+                error_detail = "未找到原始 ASAR 备份文件, 无法恢复希沃管家到原始状态"
                 log.error(error_detail)
                 log.warning("建议从官网重新下载希沃管家完整安装包")
                 raise Exception("OLD_ASAR_ENOENT")
 
-        update_progress(50, "[5 / 8] 移除Aura文件夹")
-        if install_info["aura_folder_path"]:
-            aura_folder = Path(install_info["aura_folder_path"])
-            try:
-                if aura_folder.exists():
-                    log.info(f"删除Aura文件夹: {aura_folder}")
-                    if not (args and args.dry_run):
-                        shutil.rmtree(aura_folder)
-                    log.success("Aura文件夹删除成功")
+        update_progress(50, "[5 / 7] 恢复 Verify.json")
+        if install_info["asar_path"]:
+            verify_path = hugoPass.locate_verify_json(install_info["asar_path"])
+            if verify_path:
+                verify_backup = verify_path + ".orig"
+                if os.path.exists(verify_backup):
+                    try:
+                        log.info(f"恢复 Verify.json: {verify_backup} -> {verify_path}")
+                        if not (args and args.dry_run):
+                            shutil.copy2(verify_backup, verify_path)
+                            os.remove(verify_backup)
+                        log.success("Verify.json 恢复成功")
+                    except Exception as e:
+                        log.warning(f"恢复 Verify.json 失败: {e}")
                 else:
-                    log.info("Aura文件夹不存在, 跳过")
-            except Exception as e:
-                error_detail = f"删除Aura文件夹失败: {e}, 可能文件被占用"
-                log.error(error_detail)
-                # Aura文件夹删除失败不是致命错误, 记录警告但继续执行
-                log.warning("Aura文件夹删除失败, 但不影响主要卸载流程")
+                    log.warning("未找到 Verify.json.orig 备份, 跳过恢复")
+            else:
+                log.warning("未找到 Verify.json, 跳过恢复")
 
-        update_progress(60, "[6 / 8] 清理注册表")
+        update_progress(60, "[6 / 7] 清理注册表")
         try:
             if not (args and args.dry_run):
                 winreg.DeleteKey(winreg.HKEY_CURRENT_USER, config.HUGOAURA_REGISTRY_KEY)
@@ -229,7 +222,7 @@ def run_uninstallation(args=None, installerClassIns=None):
         except Exception as e:
             log.warning(f"清理注册表失败: {e}")
 
-        update_progress(70, "[7 / 8] 清理用户数据")
+        update_progress(70, "[7 / 7] 清理用户数据")
         user_data_dir = Path(config.HUGOAURA_USER_DATA_DIR)
         try:
             if user_data_dir.exists():
@@ -251,11 +244,17 @@ def run_uninstallation(args=None, installerClassIns=None):
         log.error(f"卸载过程中发生错误: {e}")
         uninstall_success = False
     finally:
-        update_progress(90, "[8 / 8] 清理工作")
         if not (args and args.dry_run):
             killer.stop_killing_process()
 
-        update_progress(100, "卸载完成" if uninstall_success else f"出现错误: {error_detail}", "success" if uninstall_success else "error")
+        try:
+            update_progress(
+                100,
+                "卸载完成" if uninstall_success else f"出现错误: {error_detail}",
+                "success" if uninstall_success else "error",
+            )
+        except Exception:
+            pass
 
         if uninstall_success:
             log.success("=========================================")
@@ -267,7 +266,7 @@ def run_uninstallation(args=None, installerClassIns=None):
             log.error(f"{config.APP_NAME} 卸载失败")
             log.error("=========================================")
 
-        return {"success": uninstall_success, "errorInfo": error_detail}
+    return {"success": uninstall_success, "errorInfo": error_detail}
 
 
 def get_uninstall_info():

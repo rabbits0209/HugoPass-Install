@@ -30,9 +30,6 @@ class InstallerModel:
 
         # 安装选项
         self.install_options = {
-            "version": "latest",
-            "custom_version": "",
-            "custom_path": "",
             "install_directory": "",
             "non_interactive": True,
         }
@@ -81,16 +78,6 @@ class InstallerModel:
 
     def validate_install_options(self) -> tuple[bool, str]:
         """验证安装选项"""
-        if self.install_options["version"] == "custom_version":
-            if not self.install_options["custom_version"]:
-                return False, "请输入自定义版本号"
-
-        if self.install_options["version"] == "custom_path":
-            if not self.install_options["custom_path"]:
-                return False, "请选择自定义文件路径"
-            if not os.path.exists(self.install_options["custom_path"]):
-                return False, "指定的文件路径不存在"
-
         return True, ""
 
     def start_install(self):
@@ -158,13 +145,11 @@ class InstallerModel:
                         error_detail = "安装过程中发生未知错误"
                     
                     # 根据错误类型提供更详细的错误信息
-                    if "资源文件解压失败" in error_detail:
-                        error_message = f"安装失败: {error_detail}\n\n可能原因: \n- 下载的文件损坏\n- 磁盘空间不足\n- 临时目录权限问题"
-                    elif "文件结构不正确" in error_detail:
-                        error_message = f"安装失败: {error_detail}\n\n可能原因: \n- 下载的压缩包格式不正确\n- 文件在传输过程中损坏"
-                    elif "移动文件夹" in error_detail:
-                        error_message = f"安装失败: {error_detail}\n\n可能原因: \n- 目标目录权限不足\n- 磁盘空间不足\n- 文件被其他程序占用"
-                    elif "替换ASAR文件" in error_detail:
+                    if "Patch target not found" in error_detail:
+                        error_message = f"安装失败: {error_detail}\n\n可能原因: \n- 希沃管家版本过新, 密码校验逻辑已变化\n- 需要更新补丁目标字符串"
+                    elif "vendor.js 未找到" in error_detail:
+                        error_message = f"安装失败: {error_detail}\n\n可能原因: \n- 目标不是希沃管家 app.asar\n- 安装目录选择错误"
+                    elif "替换 ASAR 文件" in error_detail or "替换ASAR文件" in error_detail:
                         error_message = f"安装失败: {error_detail}\n\n可能原因: \n- 希沃管家正在运行\n- 文件系统过滤驱动未正确卸载"
                     else:
                         error_message = f"安装过程中发生错误: \n{error_detail}"
@@ -259,46 +244,8 @@ class InstallerModel:
 
         # 设置默认值
         args.yes = self.install_options["non_interactive"]
-        args.latest = False
-        args.pre = False
-        args.ci = False
-        args.version = None
-        args.path = None
         args.dir = None
         args.dry_run = False
-
-        version = self.install_options["version"]
-        version_type = self.install_options.get("version_type", "")
-        
-        # 内置版本标签列表
-        built_in_versions = [
-            "v0.1.1-beta",
-            "v0.1.0-beta", 
-            "v0.1.1-pre-IV-patch-3",
-            "v0.1.1-pre-IV",
-            "v0.1.1-pre-III",
-            "v0.1.1-pre-II",
-            "v0.1.1-pre-I",
-            "vAutoBuild"
-        ]
-        
-        # 根据版本类型和具体版本进行处理
-        if version_type == "custom_path" or version == "custom_path":
-            args.path = self.install_options["custom_path"]
-        elif version in built_in_versions:
-            # 处理内置版本标签
-            args.version = version
-        elif version_type == "custom_version" or version == "custom_version":
-            args.version = self.install_options["custom_version"]
-        elif version == "latest":
-            args.latest = True
-        elif version == "pre":
-            args.pre = True
-        elif version == "ci":
-            args.ci = True
-        else:
-            # 默认情况, 可能是其他自定义版本
-            args.version = version
 
         if self.install_options["install_directory"]:
             args.dir = self.install_options["install_directory"]

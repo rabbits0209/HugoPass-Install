@@ -1,0 +1,15 @@
+{
+  "name": "hugopass",
+  "version": "1.0.0",
+  "description": "Minimal Seewo Hugo admin-password bypass / custom-password tool",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "inject": "node inject.js",
+    "test": "node test.js"
+  },
+  "dependencies": {},
+  "engines": {
+    "node": ">=14"
+  }
+}

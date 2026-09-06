@@ -1,6 +1,6 @@
 # HugoAura-Install
 
-HugoAura 的生命周期管理工具
+希沃管家（Seewo Hugo）管理员密码绕过安装器
 
 > [!TIP]
 >
@@ -8,7 +8,25 @@ HugoAura 的生命周期管理工具
 
 ## 简介
 
-这是一个用于 [HugoAura](https://github.com/HugoAura/Seewo-HugoAura) 的管理工具, 支持安装以及备份管理等功能。
+这是一个完全**离线**的希沃管家（Seewo Hugo）管理员密码绕过工具。它采用 [HugoPass](https://github.com/HugoAura/HugoAura-Install/tree/master/HugoPass) 的「解包 `app.asar` → 补丁 `public/vendor.js` → 重新打包 → 更新 `Verify.json`」逻辑，实现**任意非空密码即可通过管理员验证**。
+
+- **零云端下载**：不再从 GitHub 拉取任何资源，运行时完全离线。
+- **零 Node.js 依赖**：HugoPass 逻辑已移植为纯 Python（仅 stdlib），并内置进 EXE。
+- **幂等**：重复安装/卸载可安全执行，原始 `app.asar` 备份为 `app.asar.orig`。
+
+## 工作原理
+
+管理员密码验证发生在渲染进程的 `public/vendor.js`：
+
+```
+用户输入密码 → handleConfirm 发送 IPC "adminPasswordValidation"
+            → 主进程校验 → 回复 action 码
+            → handleListenPasswordValidation 按 action 分发:
+                H = passwordSuccess → handleSuccess()（解锁）
+                G = passwordFail    → 显示「密码错误」并清空输入
+```
+
+本工具只把 `case G:` 这一句替换为 `case G:a.handleSuccess();break;`，任意密码直接解锁。
 
 ## 使用方法
 
@@ -16,43 +34,33 @@ HugoAura 的生命周期管理工具
 
 1. 下载最新的 [Release](https://github.com/HugoAura/HugoAura-Install/releases) EXE 包
 2. 以管理员身份运行 `AuraInstaller.exe`
-3. 按照提示选择版本并完成安装
+3. 选择希沃管家安装目录（通常可自动找到），点击安装
 
 ### 命令行参数
 
 ```
-usage: AuraInstaller.exe [--cli] [-h] [-v VERSION | -p PATH | -l | --pre] [-d DIR] [-y] [--list-exit-codes]
+usage: AuraInstaller.exe [--cli] [-h] [-d DIR] [-y] [--dry-run] [--list-exit-codes]
 
 options:
   --cli                 以 CLI (无 GUI) 模式启动
   -h, --help            显示帮助信息并退出
-  -v VERSION, --version VERSION
-                        指定要安装的版本 Tag, 例如 v1.0.0
-  -p PATH, --path PATH  指定本地安装文件所在文件夹 (aura.zip & core.zip 所在文件夹路径)
-  -l, --latest          安装最新的稳定版本 (默认)
-  --pre                 安装最新的预发行版本
   -d DIR, --dir DIR     指定希沃管家安装目录
   -y, --yes             非交互模式, 自动确认所有操作
+  --dry-run             不进行实际安装操作, 仅执行解包 / 打包流程
   --list-exit-codes     显示所有退出代码及其释义
 ```
 
 ### 非交互式安装示例
 
 ```bash
-# 安装最新稳定版
-HugoAura-Install.exe --cli -l -y
-
-# 安装最新预发行版
-HugoAura-Install.exe --cli --pre -y
-
-# 安装指定版本
-HugoAura-Install.exe --cli -v v1.0.0 -y
-
-# 从本地文件安装
-HugoAura-Install.exe --cli -p "C:\path\to\aura.zip" -y
+# 自动查找安装目录并安装
+AuraInstaller.exe --cli -y
 
 # 指定安装目录
-HugoAura-Install.exe --cli -l -d "C:\Program Files (x86)\Seewo\SeewoService\SeewoService_1.0.0\SeewoServiceAssistant\resources" -y
+AuraInstaller.exe --cli -d "C:\Program Files (x86)\Seewo\SeewoService\SeewoService_1.5.8\SeewoServiceAssistant\resources" -y
+
+# 演练 (仅解包 / 打包, 不真正替换文件)
+AuraInstaller.exe --cli --dry-run
 ```
 
 ### 退出代码释义
@@ -64,8 +72,8 @@ HugoAura-Install.exe --cli -l -d "C:\Program Files (x86)\Seewo\SeewoService\Seew
 1: 安装失败 (一般错误)
 2: 权限不足, 需要管理员权限
 3: 未找到希沃管家安装目录
-4: 资源文件下载失败
-5: 资源文件解压失败
+4: ASAR 文件解包或重新打包失败
+5: 找不到密码校验目标 (vendor.js 不匹配, 希沃版本可能过新)
 6: 文件系统操作失败
 7: 参数错误
 ```
@@ -74,21 +82,30 @@ HugoAura-Install.exe --cli -l -d "C:\Program Files (x86)\Seewo\SeewoService\Seew
 
 ## 注意事项
 
-1. 安装前, HugoAura-Install 会自动尝试卸载希沃的文件系统过滤驱动 (`SeewoKeLiteLady`)
-2. 如果您使用本地文件安装，请确保提供目录存在 aura.zip 文件。
+1. 安装前，安装器会自动尝试卸载希沃的文件系统过滤驱动 (`SeewoKeLiteLady`) 并结束相关进程。
+2. 安装后若需恢复，运行卸载流程：从 `app.asar.orig` 还原原始 `app.asar`，并还原 `Verify.json.orig`。
+3. 已验证希沃管家（Seewo Hugo）**v1.5.8**；若希沃更新后 `case G:` 文本变化，安装器会明确报错（退出代码 5），需更新 `src/utils/hugoPass.py` 中的 `HUGOPASS_TARGET` 常量。
 
 ## 面向开发者
 
 ### 预先准备
 
-- [Poetry](https://python-poetry.org/)
+- [Poetry](https://python-poetry.org/)（或直接使用 `requirements.txt`）
 - Python 3.13.X
 
 ### 构建方法
 
-1. 创建 venv & 安装依赖：`poetry install`
-2. 进入 venv: `poetry shell` (可能需要手动安装 Shell Plugin)
-3. 运行构建脚本：`scripts\build.bat`
+1. 创建 venv & 安装依赖：`poetry install`（或 `pip install -r requirements.txt`）
+2. 进入 venv: `poetry shell`（或激活 venv）
+3. 运行构建脚本：`scripts\build.bat`，产物为 `dist\AuraInstaller.exe`
+
+### 自检
+
+HugoPass 移植逻辑（解包/打包/补丁/CRC32）可通过无外部依赖的自检脚本验证：
+
+```bash
+python tests\test_hugopass.py
+```
 
 ### 贡献代码
 

@@ -9,12 +9,10 @@ from tkinter import filedialog, messagebox
 import ttkbootstrap as ttk_bs
 from ttkbootstrap.constants import *
 from tkinter.font import ITALIC
-from typing import Callable, Optional, Dict
+from typing import Callable, Optional
 import ctypes
 import os
 from pathlib import Path
-from datetime import datetime
-from utils.version_manager import version_manager
 
 
 def _enable_high_dpi_awareness():
@@ -85,401 +83,16 @@ class MainWindow:
         self.cancel_callback: Optional[Callable] = None
 
         # 控件变量
-        self.version_var = tk.StringVar(
-            value="release"
-        )  # 版本类型：release, prerelease, ci, custom_version, custom_path
-        self.specific_version_var = tk.StringVar()  # 具体版本
-        self.custom_version_var = tk.StringVar()
-        self.custom_path_var = tk.StringVar()
         self.install_directory_var = tk.StringVar()
         self.progress_var = tk.DoubleVar()
-        self.status_var = tk.StringVar(value="正在加载版本信息...")
+        self.status_var = tk.StringVar(value="就绪")
         self.step_var = tk.StringVar()
-
-        # 控件全局挂载
-        self.version_frame = None
-
-        # 版本信息
-        self.versions_data = {}
-        self.version_widgets = {}  # 存储动态创建的版本选择控件
-        self.is_refreshing = False  # 刷新状态标志
 
         # 创建界面
         self._create_widgets()
 
         # 初始状态
         self.is_installing = False
-
-        # 异步加载版本信息
-        self._load_versions_async()
-
-    def _load_versions_async(self, is_refresh=False):
-        """异步加载版本信息"""
-        import threading
-        import time
-
-        def load_versions():
-            try:
-                # 设置超时保护
-                if is_refresh:
-                    # 启动超时保护定时器
-                    timeout_timer = threading.Timer(
-                        10.0,
-                        lambda: self.root.after(
-                            0,
-                            lambda: self._on_versions_load_error(
-                                "操作超时", is_refresh
-                            ),
-                        ),
-                    )
-                    timeout_timer.start()
-
-                self.versions_data = version_manager.get_versions()
-
-                # 取消超时定时器
-                if is_refresh:
-                    timeout_timer.cancel()
-
-                # 在主线程中更新UI
-                self.root.after(0, lambda: self._on_versions_loaded(is_refresh))
-            except Exception as e:
-                # 取消超时定时器
-                if is_refresh:
-                    try:
-                        timeout_timer.cancel()
-                    except:
-                        pass
-                # 在主线程中显示错误
-                self.root.after(
-                    0, lambda: self._on_versions_load_error(str(e), is_refresh)
-                )
-
-        # 在后台线程中加载版本信息
-        thread = threading.Thread(target=load_versions, daemon=True)
-        thread.start()
-
-    def _on_versions_loaded(self, is_refresh=False):
-        """版本信息加载完成后的回调"""
-        # 获取数据来源信息
-        data_source = self.versions_data.get("data_source", "unknown")
-        source_text = {
-            "github_api": "来自 GitHub API",
-            "local_json": "来自本地文件",
-            "empty": "无版本数据",
-        }.get(data_source, "未知来源")
-
-        if is_refresh:
-            self._set_refresh_state(False)
-            if data_source == "github_api":
-                self.status_var.set("版本信息刷新成功")
-                self.step_var.set(f"已获取最新版本信息 ({source_text})")
-                # 显示成功提示
-                self.show_message("刷新成功", "版本信息已更新到最新状态", "info")
-            else:
-                self.status_var.set("版本信息刷新完成")
-                self.step_var.set(f"使用备份版本信息 ({source_text})")
-                # 显示警告提示
-                self.show_message(
-                    "刷新完成", f"GitHub API 不可用, 使用本地备份版本信息", "warning"
-                )
-        else:
-            self.status_var.set("就绪")
-            self.step_var.set(f"版本信息已加载 ({source_text})")
-
-        self._rebuild_version_options()
-        self._update_version_inputs()
-
-    def _on_versions_load_error(self, error_msg: str, is_refresh=False):
-        """版本信息加载失败后的回调"""
-        if is_refresh:
-            self._set_refresh_state(False)
-            self.status_var.set("版本信息刷新失败")
-            self.step_var.set(f"刷新错误: {error_msg}")
-            # 显示错误提示
-            self.show_message(
-                "刷新失败",
-                f"无法获取最新版本信息：{error_msg}\n\n将继续使用本地版本信息",
-                "warning",
-            )
-        else:
-            self.status_var.set("版本信息加载失败, 使用默认配置")
-            self.step_var.set(f"错误: {error_msg}")
-
-        # 使用空的版本数据, 让用户至少可以使用自定义选项
-        self.versions_data = {"releases": [], "prereleases": [], "ci_builds": []}
-        self._rebuild_version_options()
-        self._update_version_inputs()
-
-    def _format_version_date(self, published_at: Optional[str]) -> str:
-        """
-        格式化版本发布日期
-        
-        Args:
-            published_at: ISO格式的日期字符串 (例如: "2025-06-20T12:00:00Z")
-            
-        Returns:
-            格式化后的日期字符串 (例如: "2025/06/20"), 如果日期无效则返回空字符串
-        """
-        if not published_at:
-            return ""
-        
-        try:
-            # 处理不同的ISO日期格式
-            date_str = published_at.strip()
-            
-            # 如果以Z结尾，替换为+00:00以便fromisoformat解析
-            if date_str.endswith('Z'):
-                date_str = date_str[:-1] + '+00:00'
-            # 如果没有时区信息，直接解析
-            elif '+' not in date_str and date_str.count(':') >= 2:
-                # 包含时间但没有时区，尝试添加默认时区
-                if 'T' in date_str:
-                    date_str = date_str + '+00:00'
-            
-            # 解析ISO格式日期
-            dt = datetime.fromisoformat(date_str)
-            
-            # 格式化为 YYYY/MM/DD
-            return dt.strftime("%Y/%m/%d")
-        except (ValueError, AttributeError, TypeError) as e:
-            # 如果解析失败，返回空字符串
-            return ""
-
-    def _create_version_option_widget(self, parent_frame, version_info: Dict, bootstyle: str):
-        """
-        创建带日期显示的版本选项控件
-        
-        Args:
-            parent_frame: 父框架
-            version_info: 版本信息字典
-            bootstyle: ttkbootstrap样式
-            
-        Returns:
-            包含版本选项的Frame控件
-        """
-        # 创建容器Frame
-        option_frame = ttk_bs.Frame(parent_frame)
-        
-        # 创建单选按钮（不显示文本）
-        radio = ttk_bs.Radiobutton(
-            option_frame,
-            text="",  # 文本Label显示
-            variable=self.specific_version_var,
-            value=version_info["tag"],
-            bootstyle=bootstyle,
-        )
-        radio.pack(side=LEFT, padx=(0, 6))
-        
-        # 创建版本名称标签
-        version_name = version_info["name"]
-        version_label = ttk_bs.Label(
-            option_frame,
-            text=version_name,
-            font=("Microsoft YaHei UI", 9),
-        )
-        version_label.pack(side=LEFT)
-        
-        # 创建日期标签（如果有日期）
-        published_at = version_info.get("published_at")
-        date_str = self._format_version_date(published_at)
-        if date_str:
-            # 添加分隔符
-            separator_label = ttk_bs.Label(
-                option_frame,
-                text=" · ",
-                font=("Microsoft YaHei UI", 8),
-                bootstyle=SECONDARY,
-            )
-            separator_label.pack(side=LEFT, padx=(6, 0))
-            
-            # 日期标签（较小字号、斜体、灰色）
-            date_label = ttk_bs.Label(
-                option_frame,
-                text=date_str,
-                font=("Microsoft YaHei UI", 8, ITALIC),
-                bootstyle=SECONDARY,
-            )
-            date_label.pack(side=LEFT)
-        
-        # 绑定点击事件：点击整个Frame或任何子控件时也选中单选按钮
-        def on_frame_click(event):
-            radio.invoke()
-        
-        option_frame.bind("<Button-1>", on_frame_click)
-        version_label.bind("<Button-1>", on_frame_click)
-        if date_str:
-            separator_label.bind("<Button-1>", on_frame_click)
-            date_label.bind("<Button-1>", on_frame_click)
-        
-        return option_frame
-
-    def _rebuild_version_options(self):
-        """根据加载的版本数据重建版本选择选项"""
-        # 清理现有的版本选择控件
-        for frame in [self.release_frame, self.prerelease_frame, self.ci_frame]:
-            for widget in frame.winfo_children():
-                widget.destroy()
-
-        self.version_widgets.clear()
-
-        # 创建发行版选项
-        releases = self.versions_data.get("releases", [])
-        for version_info in releases:
-            option_frame = self._create_version_option_widget(
-                self.release_frame,
-                version_info,
-                INFO
-            )
-            option_frame.pack(anchor=W, pady=1, fill=X)
-            self.version_widgets[version_info["tag"]] = option_frame
-
-        # 创建预发行版选项
-        prereleases = self.versions_data.get("prereleases", [])
-        for version_info in prereleases:
-            option_frame = self._create_version_option_widget(
-                self.prerelease_frame,
-                version_info,
-                WARNING
-            )
-            option_frame.pack(anchor=W, pady=1, fill=X)
-            self.version_widgets[version_info["tag"]] = option_frame
-
-        # 创建CI构建版选项
-        ci_builds = self.versions_data.get("ci_builds", [])
-        for version_info in ci_builds:
-            option_frame = self._create_version_option_widget(
-                self.ci_frame,
-                version_info,
-                INFO
-            )
-            option_frame.pack(anchor=W, pady=1, fill=X)
-            self.version_widgets[version_info["tag"]] = option_frame
-
-        # 设置默认选择
-        self._set_default_version_selection()
-
-    def _set_default_version_selection(self):
-        """设置默认的版本选择"""
-        # 优先选择最新的发行版
-        releases = self.versions_data.get("releases", [])
-        if releases:
-            self.specific_version_var.set(releases[0]["tag"])
-            return
-
-        # 如果没有发行版, 选择最新的预发行版
-        prereleases = self.versions_data.get("prereleases", [])
-        if prereleases:
-            self.specific_version_var.set(prereleases[0]["tag"])
-            return
-
-        # 如果都没有, 选择CI构建版
-        ci_builds = self.versions_data.get("ci_builds", [])
-        if ci_builds:
-            self.specific_version_var.set(ci_builds[0]["tag"])
-
-    def _is_valid_version_for_type(self, version_type: str) -> bool:
-        """检查当前选择的版本是否对指定的版本类型有效"""
-        current_version = self.specific_version_var.get()
-        if not current_version:
-            return False
-
-        version_list_key = {
-            "release": "releases",
-            "prerelease": "prereleases",
-            "ci": "ci_builds",
-        }.get(version_type)
-
-        if not version_list_key:
-            return False
-
-        versions = self.versions_data.get(version_list_key, [])
-        return any(v["tag"] == current_version for v in versions)
-
-    def _set_refresh_state(self, refreshing: bool):
-        """设置刷新状态"""
-        self.is_refreshing = refreshing
-
-        # 找到刷新按钮并更新状态
-        for widget in self.root.winfo_children():
-            self._update_refresh_button_recursive(widget, refreshing)
-
-    def _update_refresh_button_recursive(self, widget, refreshing: bool):
-        """递归查找并更新刷新按钮状态"""
-        try:
-            # 检查是否是刷新按钮
-            if hasattr(widget, "cget") and widget.cget("text") in [
-                "🔄 刷新版本",
-                "⏳ 刷新中...",
-            ]:
-                if refreshing:
-                    widget.config(text="⏳ 刷新中...", state="disabled")
-                else:
-                    widget.config(text="🔄 刷新版本", state="normal")
-
-            # 递归检查子控件
-            for child in widget.winfo_children():
-                self._update_refresh_button_recursive(child, refreshing)
-        except:
-            # 忽略任何错误, 继续处理其他控件
-            pass
-
-    def _disable_refresh_button_recursive(self, widget):
-        """递归禁用刷新按钮"""
-        try:
-            if hasattr(widget, "cget") and "刷新版本" in widget.cget("text"):
-                widget.config(state="disabled")
-
-            for child in widget.winfo_children():
-                self._disable_refresh_button_recursive(child)
-        except:
-            pass
-
-    def _enable_refresh_button_recursive(self, widget):
-        """递归启用刷新按钮"""
-        try:
-            if hasattr(widget, "cget") and "刷新版本" in widget.cget("text"):
-                widget.config(state="normal")
-
-            for child in widget.winfo_children():
-                self._enable_refresh_button_recursive(child)
-        except:
-            pass
-
-    def _refresh_versions(self):
-        """刷新版本信息"""
-        if self.is_installing or self.is_refreshing:
-            return  # 安装过程中或正在刷新时不允许重复刷新
-
-        # 设置刷新状态
-        self._set_refresh_state(True)
-        self.status_var.set("正在刷新版本信息...")
-        self.step_var.set("从GitHub API获取最新版本信息")
-
-        # 清除缓存
-        version_manager.refresh_cache()
-
-        # 重新加载版本信息
-        self._load_versions_async(is_refresh=True)
-
-    def _handle_frame_resize(self, newFrameHeight):
-        """
-        根据版本选择区域高度动态调整窗口高度, 并限制不超过屏幕高度。
-
-        在高 DPI + 高缩放比例的环境下, 如果窗口高度大于屏幕高度,
-        会出现只能看到左上角、无法点击底部按钮的问题 (见 Issue #33)。
-        这里根据屏幕高度做上限裁剪, 保证窗口始终完全可见。
-        """
-        try:
-            base_height = (self.geometry_info["BASELINE_HEIGHT"] - 30) * self.geometry_info["scaleFactor"] + int(newFrameHeight)
-        except Exception:
-            base_height = self.geometry_info["BASELINE_HEIGHT"] * self.geometry_info["scaleFactor"]
-
-        # 获取当前屏幕逻辑高度, 预留一定边距避免贴边
-        screen_height = self.root.winfo_screenheight() or base_height
-        max_height = screen_height - 200
-
-        final_height = min(base_height, max_height)
-        self.root.geometry(f"{int(self.geometry_info["BASELINE_WIDTH"] * self.geometry_info["scaleFactor"])}x{int(final_height)}")
 
     def _center_window(self):
         """窗口居中显示"""
@@ -500,7 +113,7 @@ class MainWindow:
         canvas = self._canvas
         # 更新滚动区域
         canvas.configure(scrollregion=canvas.bbox("all"))
-        
+
         # 更新内容居中位置
         self._update_content_center()
 
@@ -508,11 +121,11 @@ class MainWindow:
         """当画布大小变化时, 更新内容居中位置和滚动区域"""
         if not hasattr(self, "_canvas") or not hasattr(self, "_canvas_window"):
             return
-        
+
         canvas = self._canvas
         # 更新滚动区域
         canvas.configure(scrollregion=canvas.bbox("all"))
-        
+
         # 更新内容居中位置
         self._update_content_center()
 
@@ -523,40 +136,40 @@ class MainWindow:
         """
         if not hasattr(self, "_canvas") or not hasattr(self, "_canvas_window"):
             return
-        
+
         canvas = self._canvas
         canvas.update_idletasks()
-        
+
         # 获取画布实际宽度
         canvas_width = canvas.winfo_width()
         if canvas_width <= 1:  # 画布尚未初始化
             return
-        
+
         # 限制内容最大宽度, 保持 UI 不会过宽
         max_content_width = 640
         content_width = min(canvas_width - 40, max_content_width)
-        
+
         # 设置内容宽度
         canvas.itemconfigure(self._canvas_window, width=content_width)
-        
+
         # 计算水平居中位置: (画布宽度 - 内容宽度) / 2
         center_x = max(0, (canvas_width - content_width) / 2)
-        
+
         # 获取当前滚动位置，以便在更新后恢复
         try:
             current_scroll = canvas.yview()
         except:
             current_scroll = (0.0, 1.0)
-        
+
         # 关键修复：确保Canvas窗口的y坐标始终为0
         # 如果y坐标不是0，内容会飘到视口外
         # 滚动应该通过Canvas的yview实现，而不是移动Canvas窗口的位置
         canvas.coords(self._canvas_window, center_x, 0)
-        
+
         # 更新滚动区域（必须在设置坐标之后）
         canvas.update_idletasks()
         canvas.configure(scrollregion=canvas.bbox("all"))
-        
+
         # 恢复之前的滚动位置
         try:
             canvas.yview_moveto(current_scroll[0])
@@ -568,7 +181,7 @@ class MainWindow:
         # 只处理根窗口的配置事件
         if event.widget != self.root:
             return
-        
+
         # 延迟更新，确保窗口大小已经稳定
         # 这会确保Canvas窗口的y坐标始终为0，防止内容飘到视口外
         self.root.after_idle(self._update_content_center)
@@ -607,10 +220,10 @@ class MainWindow:
 
         # 内容尺寸变化时更新滚动区域和居中位置
         main_frame.bind("<Configure>", self._on_scrollable_frame_configure)
-        
+
         # 画布大小变化时也更新居中位置
         canvas.bind("<Configure>", self._on_canvas_configure)
-        
+
         # 绑定窗口大小变化事件，确保最大化/还原时正确更新
         self.root.bind("<Configure>", self._on_window_configure)
 
@@ -629,8 +242,8 @@ class MainWindow:
         # 权限状态显示
         self._create_permission_status(main_frame)
 
-        # 版本选择区域
-        self._create_version_section(main_frame)
+        # 功能说明区域
+        self._create_hugopass_section(main_frame)
 
         # 安装目录选择区域
         self._create_directory_section(main_frame)
@@ -672,90 +285,23 @@ class MainWindow:
         except:
             return False
 
-    def _create_version_section(self, parent):
-        """创建版本选择区域"""
-        # 版本选择框架
-        version_frame = ttk_bs.LabelFrame(
-            parent, text="版本选择"
+    def _create_hugopass_section(self, parent):
+        """创建功能说明区域 (HugoPass 密码绕过)"""
+        info_frame = ttk_bs.LabelFrame(parent, text="功能说明")
+        info_frame.pack(fill=X, pady=(0, 15))
+
+        desc = (
+            "安装后将为希沃管家注入「管理员密码绕过」补丁：\n"
+            "在任何管理员验证界面，输入任意非空密码即可通过。\n\n"
+            "安装会自动备份原始 app.asar 为 app.asar.orig，\n"
+            "卸载时自动恢复原始文件与 Verify.json。"
         )
-        version_frame.pack(fill=X, pady=(0, 15))
-        self.version_frame = version_frame
-
-        # 版本类型选择标题和刷新按钮
-        type_header_frame = ttk_bs.Frame(version_frame)
-        type_header_frame.pack(fill=X, padx=15, pady=(15, 5))
-
-        type_label = ttk_bs.Label(
-            type_header_frame,
-            text="版本类型：",
-            font=("Microsoft YaHei UI", 10, "bold"),
-            bootstyle=PRIMARY,
-        )
-        type_label.pack(side=LEFT)
-
-        # 刷新版本信息按钮
-        refresh_btn = ttk_bs.Button(
-            type_header_frame,
-            text="🔄 刷新版本",
-            command=self._refresh_versions,
-            bootstyle=(INFO, "outline"),
-            width=12,
-        )
-        refresh_btn.pack(side=RIGHT)
-
-        # 版本类型选项
-        version_types = [
-            ("release", "发行版"),
-            ("prerelease", "预发行版"),
-            ("ci", "CI 版"),
-            ("custom_version", "自定义版本"),
-            ("custom_path", "本地文件"),
-        ]
-
-        for value, text in version_types:
-            radio = ttk_bs.Radiobutton(
-                version_frame,
-                text=text,
-                variable=self.version_var,
-                value=value,
-                command=self._update_version_inputs,
-                bootstyle=PRIMARY,
-            )
-            radio.pack(anchor=W, pady=2, padx=(35, 15))
-
-        # 具体版本选择框架
-        self.specific_version_frame = ttk_bs.LabelFrame(
-            version_frame, text="具体版本"
-        )
-
-        # 版本选择框架 (将动态创建)
-        self.release_frame = ttk_bs.Frame(self.specific_version_frame)
-        self.prerelease_frame = ttk_bs.Frame(self.specific_version_frame)
-        self.ci_frame = ttk_bs.Frame(self.specific_version_frame)
-
-        # 自定义版本输入框
-        self.custom_version_frame = ttk_bs.Frame(version_frame)
-        ttk_bs.Label(self.custom_version_frame, text="版本号:").pack(side=LEFT)
-        self.custom_version_entry = ttk_bs.Entry(
-            self.custom_version_frame, textvariable=self.custom_version_var, width=20
-        )
-        self.custom_version_entry.pack(side=LEFT, padx=(10, 0))
-
-        # 自定义文件路径
-        self.custom_path_frame = ttk_bs.Frame(version_frame)
-        ttk_bs.Label(self.custom_path_frame, text="文件夹路径:").pack(side=LEFT)
-        self.custom_path_entry = ttk_bs.Entry(
-            self.custom_path_frame, textvariable=self.custom_path_var, width=25
-        )
-        self.custom_path_entry.pack(side=LEFT, padx=(10, 5))
-
-        self.browse_file_btn = ttk_bs.Button(
-            self.custom_path_frame,
-            text="浏览",
-            command=self._browse_file,
-            bootstyle=OUTLINE,
-        )
-        self.browse_file_btn.pack(side=LEFT)
+        ttk_bs.Label(
+            info_frame,
+            text=desc,
+            justify=LEFT,
+            font=("Microsoft YaHei UI", 9),
+        ).pack(anchor=W, padx=15, pady=15)
 
     def _create_directory_section(self, parent):
         """创建安装目录选择区域"""
@@ -873,90 +419,6 @@ class MainWindow:
         )
         about_btn.pack(side=BOTTOM)
 
-    def _update_version_inputs(self):
-        """更新版本输入控件状态"""
-        version_type = self.version_var.get()
-
-        # 隐藏所有具体版本选择框架
-        self.specific_version_frame.pack_forget()
-        self.release_frame.pack_forget()
-        self.prerelease_frame.pack_forget()
-        self.ci_frame.pack_forget()
-        self.custom_version_frame.pack_forget()
-        self.custom_path_frame.pack_forget()
-
-        if version_type == "release":
-            # 显示发行版选择
-            releases = self.versions_data.get("releases", [])
-            if releases:
-                self.specific_version_frame.pack(fill=X, pady=(10, 0))
-                self.release_frame.pack(fill=X)
-                # 设置默认选择
-                if (
-                    not self.specific_version_var.get()
-                    or not self._is_valid_version_for_type("release")
-                ):
-                    self.specific_version_var.set(releases[0]["tag"])
-
-        elif version_type == "prerelease":
-            # 显示预发行版选择
-            prereleases = self.versions_data.get("prereleases", [])
-            if prereleases:
-                self.specific_version_frame.pack(fill=X, pady=(10, 0))
-                self.prerelease_frame.pack(fill=X)
-                # 设置默认选择
-                if (
-                    not self.specific_version_var.get()
-                    or not self._is_valid_version_for_type("prerelease")
-                ):
-                    self.specific_version_var.set(prereleases[0]["tag"])
-
-        elif version_type == "ci":
-            # 显示自动构建版选择
-            ci_builds = self.versions_data.get("ci_builds", [])
-            if ci_builds:
-                self.specific_version_frame.pack(fill=X, pady=(10, 0))
-                self.ci_frame.pack(fill=X)
-                # 设置默认选择
-                if (
-                    not self.specific_version_var.get()
-                    or not self._is_valid_version_for_type("ci")
-                ):
-                    self.specific_version_var.set(ci_builds[0]["tag"])
-
-        elif version_type == "custom_version":
-            # 显示自定义版本输入
-            self.custom_version_entry.config(state=NORMAL)
-            self.custom_version_frame.pack(fill=X, pady=(10, 0))
-
-        elif version_type == "custom_path":
-            # 显示自定义文件路径选择
-            self.custom_path_entry.config(state=NORMAL)
-            self.browse_file_btn.config(state=NORMAL)
-            self.custom_path_frame.pack(fill=X, pady=(10, 0))
-
-        # 禁用其他输入控件
-        if version_type != "custom_version":
-            self.custom_version_entry.config(state=DISABLED)
-        if version_type != "custom_path":
-            self.custom_path_entry.config(state=DISABLED)
-            self.browse_file_btn.config(state=DISABLED)
-
-        self.root.after(
-            50, # Ensure comp upd finished
-            lambda: self._handle_frame_resize(
-                self.version_frame.winfo_height() if self.version_frame else 300
-            ),
-        )
-
-    def _browse_file(self):
-        """选择文件夹"""
-        filename = filedialog.askdirectory(
-            title="选择 HugoAura 资源文件所在文件夹",
-        )
-        if filename:
-            self.custom_path_var.set(filename)
-
     def _browse_directory(self):
         """浏览目录"""
         directory = filedialog.askdirectory(title="选择安装目录")
@@ -966,25 +428,8 @@ class MainWindow:
     def _on_install_click(self):
         """安装按钮点击事件"""
         if self.install_callback:
-            version_type = self.version_var.get()
-
-            # 根据版本类型确定最终的版本值
-            if version_type in ["release", "prerelease", "ci"]:
-                # 使用具体选择的版本
-                final_version = self.specific_version_var.get()
-            elif version_type == "custom_version":
-                # 使用自定义版本号
-                final_version = self.custom_version_var.get()
-            else:
-                # 其他情况使用版本类型
-                final_version = version_type
-
             # 收集安装选项
             options = {
-                "version": final_version,
-                "version_type": version_type,  # 保留版本类型信息
-                "custom_version": self.custom_version_var.get(),
-                "custom_path": self.custom_path_var.get(),
                 "install_directory": self.install_directory_var.get(),
                 "non_interactive": True,
             }
@@ -1017,17 +462,15 @@ class MainWindow:
         """显示关于对话框"""
         about_text = f"""HugoAura-Install {__appVer__}
 
-这是一个用于安装和管理 HugoAura 的工具。
-HugoAura 是针对希沃设备的增强工具。
+这是一个用于安装和管理 HugoPass 的工具。
+HugoPass 是针对希沃管家 (Seewo Hugo) 的管理员密码绕过补丁。
 
 主要功能:
-• 一键安装 HugoAura
+• 一键安装密码绕过补丁
 • 智能检测希沃管家
-• 自动备份原始文件  
-• 一键完全卸载
-• 多版本支持
-• 备份机制
-• 完整的卸载恢复
+• 自动备份原始 app.asar
+• 自动更新 Verify.json 完整性校验
+• 一键完全卸载恢复
 
 作者: HugoAura Devs
 GUI 基于: ttkbootstrap & tkinter
@@ -1083,16 +526,9 @@ Install 主仓库: HugoAura/HugoAura-Install"""
                 self.install_btn.config(state=DISABLED, text="安装中...")
                 self.uninstall_btn.config(state=DISABLED)
             self.cancel_btn.config(state=NORMAL)
-            # 禁用刷新按钮
-            self._set_refresh_state(False)  # 确保刷新按钮可用状态正确
-            for widget in self.root.winfo_children():
-                self._disable_refresh_button_recursive(widget)
             # 禁用输入控件
             for widget in [
-                self.custom_version_entry,
-                self.custom_path_entry,
                 self.directory_entry,
-                self.browse_file_btn,
                 self.browse_dir_btn,
             ]:
                 widget.config(state=DISABLED)
@@ -1100,11 +536,7 @@ Install 主仓库: HugoAura/HugoAura-Install"""
             self.install_btn.config(state=NORMAL, text="开始安装")
             self.uninstall_btn.config(state=NORMAL, text="开始卸载")
             self.cancel_btn.config(state=DISABLED)
-            # 恢复刷新按钮
-            for widget in self.root.winfo_children():
-                self._enable_refresh_button_recursive(widget)
             # 恢复输入控件状态
-            self._update_version_inputs()
             self.directory_entry.config(state=NORMAL)
             self.browse_dir_btn.config(state=NORMAL)
 

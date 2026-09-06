@@ -10,7 +10,6 @@ block_cipher = None
 # 定义数据文件
 datas = [
     (str(src_dir / 'app' / 'public' / 'installer.ico'), 'app/public'),
-    (str(src_dir / 'app' / 'public' / 'versions.json'), 'app/public'),
     (str(src_dir / 'config'), 'config'),
 ]
 
@@ -45,18 +44,14 @@ hiddenimports = [
     
     # 日志系统
     'loguru',
-    
-    # 网络请求
-    'requests',
-    'urllib3',
-    
+
     # 系统相关
     'ctypes',
     'winreg',
     'subprocess',
     'threading',
     'pathlib',
-    
+
     # 项目模块
     'app.tk.controller.main_controller',
     'app.tk.ui.main_window',
@@ -64,7 +59,7 @@ hiddenimports = [
     'logger.initLogger',
     'utils.uac',
     'utils.dirSearch',
-    'utils.fileDownloader',
+    'utils.hugoPass',
     'utils.killer',
     'config.config',
     'installer',

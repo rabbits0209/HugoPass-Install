@@ -104,7 +104,7 @@ def main():
             app.run()
         
     except ImportError as e:
-        error_msg = f"模块导入失败: {e}\n\n请确保所有依赖都已正确安装:\n- ttkbootstrap\n- pillow\n- loguru\n- requests"
+        error_msg = f"模块导入失败: {e}\n\n请确保所有依赖都已正确安装:\n- ttkbootstrap\n- pillow\n- loguru"
         show_error_dialog(error_msg)
         sys.exit(1)
     except Exception as e:
