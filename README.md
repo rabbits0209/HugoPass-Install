@@ -1,16 +1,16 @@
-# HugoAura-Install
+# HugoPass-Install
 
 希沃管家（Seewo Hugo）管理员密码绕过安装器
 
 > [!TIP]
 >
-> 感谢 [@Vistaminc](https://github.com/Vistaminc) 的贡献, 目前 HugoAura-Install 已支持 GUI 图形化界面安装!
+> 感谢 [@Vistaminc](https://github.com/Vistaminc) 的贡献, 目前 HugoPass-Install 已支持 GUI 图形化界面安装!
 
 ## 简介
 
-这是一个完全**离线**的希沃管家（Seewo Hugo）管理员密码绕过工具。它采用 [HugoPass](https://github.com/HugoAura/HugoAura-Install/tree/master/HugoPass) 的「解包 `app.asar` → 补丁 `public/vendor.js` → 重新打包 → 更新 `Verify.json`」逻辑，实现**任意非空密码即可通过管理员验证**。
+这是一个完全**离线**的希沃管家（Seewo Hugo）管理员密码绕过工具。它采用 [HugoPass]的「解包 `app.asar` → 补丁 `public/vendor.js` → 重新打包 → 更新 `Verify.json`」逻辑，实现**任意非空密码即可通过管理员验证**。
 
-- **零云端下载**：不再从 GitHub 拉取任何资源，运行时完全离线。
+- **零云端下载**：运行时完全离线。
 - **零 Node.js 依赖**：HugoPass 逻辑已移植为纯 Python（仅 stdlib），并内置进 EXE。
 - **幂等**：重复安装/卸载可安全执行，原始 `app.asar` 备份为 `app.asar.orig`。
 
@@ -32,14 +32,14 @@
 
 ### 基本用法
 
-1. 下载最新的 [Release](https://github.com/HugoAura/HugoAura-Install/releases) EXE 包
-2. 以管理员身份运行 `AuraInstaller.exe`
+1. 下载最新的 [Release](https://github.com/HugoPass/HugoPass-Install/releases) EXE 包
+2. 以管理员身份运行 `PassInstaller.exe`
 3. 选择希沃管家安装目录（通常可自动找到），点击安装
 
 ### 命令行参数
 
 ```
-usage: AuraInstaller.exe [--cli] [-h] [-d DIR] [-y] [--dry-run] [--list-exit-codes]
+usage: PassInstaller.exe [--cli] [-h] [-d DIR] [-y] [--dry-run] [--list-exit-codes]
 
 options:
   --cli                 以 CLI (无 GUI) 模式启动
@@ -54,13 +54,13 @@ options:
 
 ```bash
 # 自动查找安装目录并安装
-AuraInstaller.exe --cli -y
+PassInstaller.exe --cli -y
 
 # 指定安装目录
-AuraInstaller.exe --cli -d "C:\Program Files (x86)\Seewo\SeewoService\SeewoService_1.5.8\SeewoServiceAssistant\resources" -y
+PassInstaller.exe --cli -d "C:\Program Files (x86)\Seewo\SeewoService\SeewoService_1.5.8\SeewoServiceAssistant\resources" -y
 
 # 演练 (仅解包 / 打包, 不真正替换文件)
-AuraInstaller.exe --cli --dry-run
+PassInstaller.exe --cli --dry-run
 ```
 
 ### 退出代码释义
@@ -97,18 +97,9 @@ AuraInstaller.exe --cli --dry-run
 
 1. 创建 venv & 安装依赖：`poetry install`（或 `pip install -r requirements.txt`）
 2. 进入 venv: `poetry shell`（或激活 venv）
-3. 运行构建脚本：`scripts\build.bat`，产物为 `dist\AuraInstaller.exe`
+3. 运行构建脚本：`scripts\build.bat`，产物为 `dist\PassInstaller.exe`
 
-### 自检
-
-HugoPass 移植逻辑（解包/打包/补丁/CRC32）可通过无外部依赖的自检脚本验证：
-
-```bash
-python tests\test_hugopass.py
-```
 
 ### 贡献代码
 
 欢迎提交 Issues 和 Pull Request!
-
-如有关于 HugoAura 的使用问题 / 建议, 请勿提交至本 Repo。请前往 [HugoAura 主项目](https://github.com/HugoAura/Seewo-HugoAura) 提交 Issues。
